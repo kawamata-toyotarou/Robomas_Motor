@@ -137,6 +137,7 @@ int16_t karentobaryu = 0;
 uint8_t get_id = 0;
 uint8_t motor_state=0;
 int64_t Elapsed_time;
+int len;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -199,7 +200,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 			Error_Handler();
 		}
 
-    int len = 0;
+    len = 0;
     switch (RxHeader.DataLength)
     {
     case FDCAN_DLC_BYTES_0:
@@ -369,11 +370,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         //karentobaryu=(int)(pid(motors[h].c_current,motors[h].cmokuhyou,motors[h].Kp,motors[h].Ki,motors[h].Kd,&motors[h].gosagoukei,&motors[h].lowpastgosa,gravity,cutoff,&motors[h].maenogosa)); 
         karentobaryu = motors[h].current_target;
       }
-      if(now - Elapsed_time<1000 && motor_state==1){
-        karentobaryu=0;
-      }
-      if(now - Elapsed_time>6000){
-        karentobaryu=0;
+// --- 時間経過による安全停止ロジック ---
+      if (motor_state == 1) { // ボタンが押された後
+          uint32_t diff_time = now - Elapsed_time;
+          
+          if (diff_time < 1000) {
+              // ボタンを押して1秒未満は停止
+              karentobaryu = 0;
+          } else if (diff_time > 6000) {
+              // ボタンを押して6秒以上経ったら停止
+              karentobaryu = 0;
+          } else {
+              // 1秒〜6秒の間は、PIDで計算されたkarentobaryu
+          }
+      } else {
+          // motor_state == 0 (起動直後、ボタンが押される前) の動作
       }
       saved_total_ecd[h] = motors[h].rotate_total_angle;
 
