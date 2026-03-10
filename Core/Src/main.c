@@ -316,27 +316,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     for (int h = 0; h < 4; h++) {
       motors[h].rotate_now_angle = motors[h].angle_data;
       update_total_angle(&motors[h]);
-
+      if (now-Elapsed_time > 6000) {
+              // ボタンを押して6秒以上経ったら停止
+              mode[h]=2;
+          }
       if (mode[h] == 0) { // 位置制御
+        motors[h].rotate_total_angle = 0;           // 累積角度をリセット
+        motors[h].angle_target = 0;      // 目標角度を現在地に合わせる
+        motors[h].last_time_angle = 0;    // PIDの積分項(I)をリセット
+        motors[h].angle_last_time_difference = 0;     // PIDの微分項(D)をリセット
+        motors[h].angle_lowpass_difference = 0;   // ローパスフィルタ用変数をリセット
+        motors[h].speed_total_difference = 0;          // 速度制御用の蓄積誤差もリセット
+        motors[h].angle_target=0;
         motors[h].Kp = 1;
         motors[h].Ki = 0.03;
         motors[h].Kd = 80.0;
         karentobaryu = (int)pid((float)motors[h].rotate_total_angle, motors[h].angle_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference, gravity, cutoff, &motors[h].angle_last_time_difference, h);
         motors[h].last_time_angle = motors[h].angle;
-        int error_abs = motors[h].angle_target - motors[h].rotate_total_angle;
-        if (error_abs < 0) error_abs = -error_abs;
-        if (error_abs < 10) {
-          karentobaryu = 0;
-          motors[h].angle_total_difference = 0;
-        }
       }
 
       if (mode[h] == 1) { // 速度制御
         if(motor_state==0){
-            motors[h].speed_target=-300;
+            motors[h].speed_target=-1500;
         }
         else{
-            motors[h].speed_target=300;
+            motors[h].speed_target=1500;
         }
         motors[h].Kp = 15.0;
         motors[h].Ki = 8.0;
@@ -345,6 +349,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       }
 
       if (mode[h] == 2) { // カスケード制御
+        motors[h].rotate_total_angle = 0;           // 累積角度をリセット
+        motors[h].angle_target = 0;      // 目標角度を現在地に合わせる
+        motors[h].last_time_angle = 0;    // PIDの積分項(I)をリセット
+        motors[h].angle_last_time_difference = 0;     // PIDの微分項(D)をリセット
+        motors[h].angle_lowpass_difference = 0;   // ローパスフィルタ用変数をリセット
+        motors[h].speed_total_difference = 0;          // 速度制御用の蓄積誤差もリセット
+        motors[h].angle_target=0;
         motors[h].Kp = 1;
         motors[h].Ki = 0.0;
         motors[h].Kd = 0.0;
@@ -354,12 +365,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         motors[h].Ki = 8.0;
         motors[h].Kd = 10.0;
         karentobaryu = (int)(pid(motors[h].speed, motors[h].speed_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].speed_total_difference, &motors[h].lowpass_difference, gravity, cutoff, &motors[h].speed_last_time_difference, h));
-        int error_abs = motors[h].angle_target - motors[h].rotate_total_angle;
-        if (error_abs < 0) error_abs = -error_abs;
-        if (error_abs < 20) {
-          karentobaryu = 0;
-          motors[h].angle_total_difference = 0;
-        }
       }
 
       if (mode[h] == 3) { // 電流制御
@@ -377,10 +382,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           if (diff_time < 1000) {
               // ボタンを押して1秒未満は停止
               karentobaryu = 0;
-          } else if (diff_time > 6000) {
-              // ボタンを押して6秒以上経ったら停止
-              karentobaryu = 0;
-          } else {
+          }  else {
               // 1秒〜6秒の間は、PIDで計算されたkarentobaryu
           }
       } else {
