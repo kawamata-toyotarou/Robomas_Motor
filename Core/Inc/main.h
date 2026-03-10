@@ -57,6 +57,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define kokoichi_Pin GPIO_PIN_0
+#define kokoichi_GPIO_Port GPIOC
+#define kokoichi_EXTI_IRQn EXTI0_IRQn
 #define Board_LED_Pin GPIO_PIN_2
 #define Board_LED_GPIO_Port GPIOD
 

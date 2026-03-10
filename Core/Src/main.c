@@ -748,11 +748,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Board_LED_GPIO_Port, Board_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PC0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  /*Configure GPIO pin : kokoichi_Pin */
+  GPIO_InitStruct.Pin = kokoichi_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_GPIO_Init(kokoichi_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Board_LED_Pin */
   GPIO_InitStruct.Pin = Board_LED_Pin;
