@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -121,7 +121,7 @@ FDCAN_TxHeaderTypeDef TxHeader_motor;
 volatile int32_t saved_total_ecd[4] __attribute__((section(".noinit"))); // リセットまたぎ用
 volatile uint32_t magic_flag __attribute__((section(".noinit")));        // 起動判定フラグ
 
-int mode[4] ={2,2,2,2};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
+int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
 uint8_t TxData[8] = {0};
 uint8_t TxData2[2] = {0};
@@ -135,6 +135,8 @@ uint8_t TxData1FF[8] = {0}; // ID 5-8 (0x1FFで送信)用
 int16_t karentobaryu = 0;
 
 uint8_t get_id = 0;
+uint8_t motor_state=0;
+int64_t Elapsed_time;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -176,6 +178,16 @@ uint16_t map_robstride(float x, int mode);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  if((kokoichi_Pin==GPIO_Pin)){
+    if(motor_state==0){
+      motor_state=1;
+      Elapsed_time=HAL_GetTick();
+    }
+  }
+}
+
 void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs){
 	if (RESET != (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE)) {
 
@@ -274,6 +286,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
           motors[i].speed = (int16_t)((RxData[2] << 8) | RxData[3]);
           motors[i].now_current = (int16_t)((RxData[4] << 8) | RxData[5]); // トルク電流
           motors[i].init_flag = 1;
+          motors[i].can_now_time = HAL_GetTick();
         }
       }
     }
@@ -318,6 +331,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       }
 
       if (mode[h] == 1) { // 速度制御
+        if(motor_state==0){
+            motors[h].speed_target=200;
+        }
+        else{
+            motors[h].speed_target=-200;
+        }
         motors[h].Kp = 15.0;
         motors[h].Ki = 8.0;
         motors[h].Kd = 10.0;
@@ -350,7 +369,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         //karentobaryu=(int)(pid(motors[h].c_current,motors[h].cmokuhyou,motors[h].Kp,motors[h].Ki,motors[h].Kd,&motors[h].gosagoukei,&motors[h].lowpastgosa,gravity,cutoff,&motors[h].maenogosa)); 
         karentobaryu = motors[h].current_target;
       }
-
+      if(now - Elapsed_time<1000 && motor_state==1){
+        karentobaryu=0;
+      }
+      if(now - Elapsed_time>6000){
+        karentobaryu=0;
+      }
       saved_total_ecd[h] = motors[h].rotate_total_angle;
 
       // 送信データの作成
@@ -458,20 +482,20 @@ int main(void)
   // --- 1. まずモーターからの通信が来るのを待つ ---
   // これがないと、初期位置(last_raw_ecd)が0のまま計算が始まり、
   // 起動直後に巨大な角度変化として誤検知されて暴走する。
-  // while (1) {
-  //   int ready_count = 0;
-  //   for (int i = 0; i < 4; i++) {
-  //     if (motors[i].init_flag == 1) {
-  //       ready_count++;
-  //     }
-  //   }
-  //   // とりあえず1個でも通信できたら次へ（全モーター繋いでいるなら == 4 にする）
-  //   if (ready_count >= 1) {
-  //     HAL_Delay(100); // データ安定待ち
-  //     break;
-  //   }
-  //   HAL_Delay(10);
-  // }
+  while (1) {
+    int ready_count = 0;
+    for (int i = 0; i < 4; i++) {
+      if (motors[i].init_flag == 1) {
+        ready_count++;
+      }
+    }
+    // とりあえず1個でも通信できたら次へ（全モーター繋いでいるなら == 4 にする）
+    if (ready_count >= 1) {
+      HAL_Delay(100); // データ安定待ち
+      break;
+    }
+    HAL_Delay(10);
+  }
 
   printf("Motor data received. Setting current position as ZERO.\r\n");
 
@@ -748,11 +772,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(Board_LED_GPIO_Port, Board_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : kokoichi_Pin */
-  GPIO_InitStruct.Pin = kokoichi_Pin;
+  /*Configure GPIO pin : PC0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(kokoichi_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Board_LED_Pin */
   GPIO_InitStruct.Pin = Board_LED_Pin;
