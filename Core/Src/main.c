@@ -333,10 +333,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
       if (mode[h] == 1) { // 速度制御
         if(motor_state==0){
-            motors[h].speed_target=200;
+            motors[h].speed_target=-300;
         }
         else{
-            motors[h].speed_target=-200;
+            motors[h].speed_target=300;
         }
         motors[h].Kp = 15.0;
         motors[h].Ki = 8.0;
