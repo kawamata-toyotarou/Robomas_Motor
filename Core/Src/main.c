@@ -82,6 +82,8 @@ typedef struct
   uint16_t kd;       // Velocity gain
   int16_t t_ff;      // Feed-forward torque (Nm)
 }mit_command;
+
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -91,14 +93,19 @@ typedef struct
 #define MAIN_CANID 0xFE
 
 #define robo_ID 0x1
+#define responce_CANID    0x301
 
+#define robstride_target 0x211
+#define robomas_target 0x212
+#define  motor_target 0x213
 // 何の値を変換するかを指定する
 enum
 {
   TARGET_ANGLE,
   TARGET_ANGULAR_VELOCITY,
   K_P,
-  K_D
+  K_D,
+  Torque
 };
 /* USER CODE END PD */
 
@@ -140,6 +147,13 @@ uint8_t get_id = 0;
 uint8_t motor_state=0;
 int64_t Elapsed_time;
 int len;
+
+
+volatile float robstride_angle = 0.0;//アームの現在角度
+volatile float robstride_angle_target = 0.0;
+
+volatile float robomas_target_angle = 0.0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -190,6 +204,35 @@ uint16_t map_robstride(float x, int mode);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+float unmap_robstride(uint16_t x, int mode)
+{
+    float before_min, before_max, after_min, after_max;
+    switch(mode)
+    {
+        case TARGET_ANGLE:
+            before_min = 0.0;
+            before_max = 65535.0;
+            after_min = -4 * M_PI;
+            after_max = 4 * M_PI;
+            break;
+        case TARGET_ANGULAR_VELOCITY:
+            before_min = 0.0;
+            before_max = 65535.0;
+            after_min = -44.0;
+            after_max = 44.0;
+            break;
+        case Torque:
+            before_min = 0.0;
+            before_max = 65535.0;
+            after_min = -17.0;
+            after_max = 17.0;
+            break;
+        default:
+            return 0.0f;
+    }
+    return after_min + ((float)x - before_min) * (after_max - after_min) / (before_max - before_min);
+}
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if((kokoichi_Pin==GPIO_Pin)){
@@ -266,11 +309,22 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       break;
     }
 
+    float rxdata_f[2];
+
     switch (RxHeader.Identifier)
     {
-      case CAN_ID_MACRO_kaetekudasai: // change this value for testing. Reccommend to use an ID with privateDefined macro
-        /* code */
+      case robstride_target: // change this value for testing. Reccommend to use an ID with privateDefined macro
+        u8_to_float(RxData,rxdata_f,len);
+        robstride_angle_target = rxdata_f[0];
         break;
+      case robomas_target:
+        u8_to_float(RxData,rxdata_f,len);
+        robomas_target_angle  = rxdata_f[0]*8192.0 / 360.0 * 180.0 /M_PI;
+        break;
+      case motor_target:
+        u8_to_float(RxData,rxdata_f,len);
+        robstride_angle_target = rxdata_f[0];
+        robomas_target_angle  = rxdata_f[1]*8192.0 / 360.0 * 180.0 /M_PI;
       default:
         // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
         break;
@@ -304,10 +358,24 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     }
     else if (FDCAN_EXTENDED_ID == RxHeader.IdType)
     {
-      if ((RxHeader.Identifier >> 24) == 0x00)
+      uint8_t cmd_type = (RxHeader.Identifier >> 24) & 0x1F;
+      uint8_t motor_id = (RxHeader.Identifier >> 8) & 0xFF; // 下位8bitがモーターID
+
+      if (cmd_type == 0x00)
       {
         get_id = (uint16_t)((RxHeader.Identifier >> 8) & 0xFFFFu);
       }
+      else if (cmd_type == 0x02) // Motor operation status feedback
+      {
+        // 最初の2バイトが角度データ
+        uint16_t angle_u16 = (RxData[0] << 8) | RxData[1];
+        float actual_angle = unmap_robstride(angle_u16, TARGET_ANGLE);
+
+        if (motor_id == robo_ID) {
+          robstride_angle = actual_angle;
+        } 
+      }
+      
     }
   }
 }
@@ -375,6 +443,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       }
 
       if (mode[h] == 2) { // カスケード制御
+        motors[h].angle_target = (int)robomas_target_angle;
         motors[h].Kp = 1;
         motors[h].Ki = 0.0;
         motors[h].Kd = 0.0;
@@ -439,6 +508,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan3, &TxHeader_motor, TxData1FF) != HAL_OK) {
           // Error Handling
       }
+    }
+
+    static int send_counter = 0;
+    send_counter++;
+    if(send_counter >= 10){
+      send_counter = 0;
+      float robomas_angle = motors[0].rotate_total_angle /  8192.0 * 2 * M_PI;
+      float motor_angle[2] = {robomas_angle,robomas_angle};
+
+      uint8_t tx_angle[8];
+      float_to_u8(motor_angle,tx_angle,2);
+
+      FDCAN_TxHeaderTypeDef TxHeader_angle = TxHeader;
+      CAN_SEND(responce_CANID, FDCAN_DLC_BYTES_12, tx_angle, &hfdcan1, &TxHeader_angle);
+
     }
   }
 }
@@ -1288,15 +1372,15 @@ void robstride_enable_run(uint8_t motor_id)
 
 void robstride_disable_or_clear_fault(uint8_t motor_id, uint8_t clear)
 {
-    uint8_t data[8] = {0};
-    uint8_t data2[2] = {0};
+  uint8_t data[8] = {0};
+  uint8_t data2[2] = {0};
 
-    data2[0] = MAIN_CANID;      // bit15..8 host/main CAN ID
-    data2[1] = 0x00;            // 未使用
+  data2[0] = MAIN_CANID;      // bit15..8 host/main CAN ID
+  data2[1] = 0x00;            // 未使用
 
-    data[0] = clear;   // clear fault when 1
+  data[0] = clear;   // clear fault when 1
 
-    send_robstride(motor_id, 0x4, data, data2);
+  send_robstride(motor_id, 0x4, data, data2);
 }
 /* USER CODE END 4 */
 
