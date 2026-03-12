@@ -90,6 +90,8 @@ typedef struct
 
 #define MAIN_CANID 0xFE
 
+#define robo_ID 0x1
+
 // 何の値を変換するかを指定する
 enum
 {
@@ -173,6 +175,15 @@ void send_robstride(uint8_t Motor_canid, uint8_t mode, uint8_t *data, uint8_t *d
 
 void mit_to_u8(mit_command *cmd, uint8_t *txdata, uint8_t *txdata2);
 void move_robstride(mit_command *cmd, uint8_t motor_id);
+
+void get_id_robstride(int motor_id);
+void robstride_set_mechanical_zero(uint8_t motor_id);
+void robstride_write_param_u32(uint8_t motor_id, uint16_t index, uint32_t value);
+void robstride_write_param_f32(uint8_t motor_id, uint16_t index, float value);
+void robstride_mode_pp_init(uint8_t motor_id, float vel_max, float acc_set);
+void robstride_move(uint8_t motor_id, float target_position);
+void robstride_enable_run(uint8_t motor_id);
+void robstride_disable_or_clear_fault(uint8_t motor_id, uint8_t clear);
 
 uint16_t map_robstride(float x, int mode);
 /* USER CODE END PFP */
@@ -337,7 +348,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           } else {
          
               mode[h] = 2; // カスケード制御
-              motors[h].angle_target = 1080.0*8192/360.0*36.0; // ★戻したい角度に合わせて変更してください
+              motors[h].angle_target = 0.0*8192/360.0*36.0; // ★戻したい角度に合わせて変更してください
           }
       }
       motors[h].rotate_now_angle = motors[h].angle_data;
@@ -536,6 +547,15 @@ int main(void)
     motors[i].angle_lowpass_difference = 0;
   }
 
+  robstride_disable_or_clear_fault(robo_ID, 1);
+  HAL_Delay(50);
+
+  robstride_mode_pp_init(robo_ID, 1.0, 1.0);
+  HAL_Delay(10);
+
+  float angle = 1.57  ;
+  float target = 1.57/2.0;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -545,9 +565,10 @@ int main(void)
 
     uint8_t data[8] = {0};
     uint8_t data2[2] = {0, MAIN_CANID};
-    send_robstride(0x7f,0x3,data, data2);
-    move_robstride(&robosutoraido, 0x7f);
-    HAL_Delay(2);
+    target = target + angle;
+    angle = - angle;
+    robstride_move(robo_ID, target);
+    HAL_Delay(5000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1181,6 +1202,101 @@ uint16_t map_robstride(float x, int mode)
     after_max = 65535.0;
 
     return after_min + (x - before_min) * (after_max - after_min) / (before_max - before_min);
+}
+
+
+void get_id_robstride(int motor_id)
+{
+  uint8_t data[8] = {0};
+  uint8_t data2[2] = {0, MAIN_CANID};
+  send_robstride(motor_id, 0x0, data, data2);
+}
+
+void robstride_set_mechanical_zero(uint8_t motor_id)
+{
+    uint8_t data[8] = {0};
+    uint8_t data2[2] = {0};
+
+    data2[0] = MAIN_CANID;
+    data[0] = 1;
+
+    send_robstride(motor_id, 0x6, data, data2);
+}
+
+void robstride_write_param_u32(uint8_t motor_id, uint16_t index, uint32_t value)
+{
+    uint8_t data[8] = {0};
+    uint8_t data2[2] = {0};
+
+    data2[0] = MAIN_CANID;  // bit15..8
+    data2[1] = 0x00;        // 予約/未使用
+
+    data[0] = (uint8_t)(index & 0xFF);        // little-endian
+    data[1] = (uint8_t)((index >> 8) & 0xFF);
+    data[2] = 0x00;
+    data[3] = 0x00;
+    data[4] = (uint8_t)(value & 0xFF);        // little-endian
+    data[5] = (uint8_t)((value >> 8) & 0xFF);
+    data[6] = (uint8_t)((value >> 16) & 0xFF);
+    data[7] = (uint8_t)((value >> 24) & 0xFF);
+
+    send_robstride(motor_id, 0x12, data, data2);
+}
+
+void robstride_write_param_f32(uint8_t motor_id, uint16_t index, float value)
+{
+    uint8_t data[8] = {0};
+    uint8_t data2[2] = {0};
+
+    data2[0] = MAIN_CANID;
+    data2[1] = 0x00;
+
+    data[0] = (uint8_t)(index & 0xFF);
+    data[1] = (uint8_t)((index >> 8) & 0xFF);
+    data[2] = 0x00;
+    data[3] = 0x00;
+    memcpy(&data[4], &value, 4); // STM32はlittle-endian
+
+    send_robstride(motor_id, 0x12, data, data2);
+}
+
+void robstride_mode_pp_init(uint8_t motor_id, float vel_max, float acc_set)
+{
+  robstride_write_param_u32(motor_id, 0x7005, 1);   // position mode
+  HAL_Delay(2);
+  robstride_write_param_f32(motor_id, 0x7024, vel_max); // speed limit
+  HAL_Delay(2);
+  robstride_write_param_f32(motor_id, 0x7025, acc_set);
+  HAL_Delay(2);
+  robstride_write_param_u32(motor_id, 0x7017, 10);
+   HAL_Delay(2);
+  robstride_enable_run(motor_id);
+}
+
+void robstride_move(uint8_t motor_id, float target_position)
+{
+  robstride_write_param_f32(motor_id, 0x7016, target_position);
+}
+
+void robstride_enable_run(uint8_t motor_id)
+{
+  uint8_t d8[8] = {0};
+  uint8_t d2[2] = {0};
+  d2[0] = MAIN_CANID;
+  send_robstride(motor_id, 0x3, d8, d2);
+}
+
+void robstride_disable_or_clear_fault(uint8_t motor_id, uint8_t clear)
+{
+    uint8_t data[8] = {0};
+    uint8_t data2[2] = {0};
+
+    data2[0] = MAIN_CANID;      // bit15..8 host/main CAN ID
+    data2[1] = 0x00;            // 未使用
+
+    data[0] = clear;   // clear fault when 1
+
+    send_robstride(motor_id, 0x4, data, data2);
 }
 /* USER CODE END 4 */
 
