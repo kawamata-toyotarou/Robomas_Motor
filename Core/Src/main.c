@@ -637,8 +637,6 @@ int main(void)
   robstride_mode_pp_init(robo_ID, 1.0, 1.0);
   HAL_Delay(10);
 
-  float angle = 1.57  ;
-  float target = 1.57/2.0;
 
   /* USER CODE END 2 */
 
@@ -646,13 +644,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-    uint8_t data[8] = {0};
-    uint8_t data2[2] = {0, MAIN_CANID};
-    target = target + angle;
-    angle = - angle;
-    robstride_move(robo_ID, target);
-    HAL_Delay(5000);
+    robstride_move(robo_ID, robstride_angle_target);
+    HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
