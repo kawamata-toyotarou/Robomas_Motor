@@ -133,7 +133,7 @@ volatile uint32_t magic_flag __attribute__((section(".noinit")));        // 起�
 int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
 uint8_t TxData[8] = {0};
-uint8_t TxData2[2] = {0};
+uint8_t TxData2[8] = {0};
 uint16_t kaitensuu = (uint16_t)(1.4 * 60);
 uint8_t cutoff = 8;
 uint16_t gravity = 0;
@@ -147,6 +147,7 @@ uint8_t get_id = 0;
 uint8_t motor_state=0;
 int64_t Elapsed_time;
 int len;
+uint8_t init_pin = 0;
 
 
 volatile float robstride_angle = 0.0;//アームの現在角度
@@ -239,12 +240,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if(motor_state==0){
       motor_state=1;
       Elapsed_time=HAL_GetTick();
+    }else {
+      init_pin = 1;
     }
+    
   }
 }
 
 void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs){
 	if (RESET != (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE)) {
+    
 
     /* Retrieve Rx messages from RX FIFO1 */
 		uint8_t RxData[64] = {};
@@ -309,7 +314,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       break;
     }
 
-    float rxdata_f[2];
+    float rxdata_f[3];
 
     switch (RxHeader.Identifier)
     {
@@ -360,6 +365,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     {
       uint8_t cmd_type = (RxHeader.Identifier >> 24) & 0x1F;
       uint8_t motor_id = (RxHeader.Identifier >> 8) & 0xFF; // 下位8bitがモーターID
+      printf("a\r\n");
 
       if (cmd_type == 0x00)
       {
@@ -417,6 +423,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
          
               mode[h] = 2; // カスケード制御
               motors[h].angle_target = 0.0*8192/360.0*36.0; // ★戻したい角度に合わせて変更してください
+          }
+          if( init_pin ==1){
+            motors[h].rotate_total_angle = 0;
+            init_pin = 0;
           }
       }
       motors[h].rotate_now_angle = motors[h].angle_data;
@@ -515,13 +525,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     if(send_counter >= 10){
       send_counter = 0;
       float robomas_angle = motors[0].rotate_total_angle /  8192.0 * 2 * M_PI;
-      float motor_angle[2] = {robomas_angle,robomas_angle};
+      float motor_angle[2] = {robstride_angle,robomas_angle};
 
       uint8_t tx_angle[8];
       float_to_u8(motor_angle,tx_angle,2);
 
       FDCAN_TxHeaderTypeDef TxHeader_angle = TxHeader;
-      CAN_SEND(responce_CANID, FDCAN_DLC_BYTES_12, tx_angle, &hfdcan1, &TxHeader_angle);
+      CAN_SEND(responce_CANID, FDCAN_DLC_BYTES_8, tx_angle, &hfdcan1, &TxHeader_angle);
 
     }
   }
@@ -645,6 +655,7 @@ int main(void)
   while (1)
   {
     robstride_move(robo_ID, robstride_angle_target);
+    printf("angle:%f,robmas:%d\r\n",robstride_angle,(int)robomas_target_angle);
     HAL_Delay(10);
     /* USER CODE END WHILE */
 
@@ -1060,10 +1071,10 @@ void robstride_CAN_filter_init(FDCAN_FilterTypeDef *Hfdcan_Filter_Settings)
 {
   Hfdcan_Filter_Settings->IdType = FDCAN_EXTENDED_ID;
   Hfdcan_Filter_Settings->FilterIndex = 0;
-  Hfdcan_Filter_Settings->FilterType = FDCAN_FILTER_RANGE;
+  Hfdcan_Filter_Settings->FilterType = FDCAN_FILTER_MASK;
   Hfdcan_Filter_Settings->FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
   Hfdcan_Filter_Settings->FilterID1 = 0x00;
-  Hfdcan_Filter_Settings->FilterID2 = 0x2000000;
+  Hfdcan_Filter_Settings->FilterID2 = 0x0000000;
 }
 
 HAL_StatusTypeDef motor_CAN_RxTxSettings_init(FDCAN_TxHeaderTypeDef *Htxheader)
