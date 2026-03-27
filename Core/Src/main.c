@@ -97,7 +97,7 @@ typedef struct
 
 #define robstride_target 0x211
 #define robomas_target 0x212
-#define  motor_target 0x213
+#define  motor_target 0x311
 // 何の値を変換するかを指定する
 enum
 {
@@ -314,22 +314,22 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       break;
     }
 
-    float rxdata_f[3];
+    float rxdata_f[5];
 
     switch (RxHeader.Identifier)
     {
-      case robstride_target: // change this value for testing. Reccommend to use an ID with privateDefined macro
-        u8_to_float(RxData,rxdata_f,len);
-        robstride_angle_target = rxdata_f[0];
-        break;
-      case robomas_target:
-        u8_to_float(RxData,rxdata_f,len);
-        robomas_target_angle  = rxdata_f[0]*8192.0 / 360.0 * 180.0 /M_PI;
-        break;
+      // case robstride_target: // change this value for testing. Reccommend to use an ID with privateDefined macro
+      //   u8_to_float(RxData,rxdata_f,len);
+      //   robstride_angle_target = rxdata_f[0];
+      //   break;
+      // case robomas_target:
+      //   u8_to_float(RxData,rxdata_f,len);
+      //   robomas_target_angle  = rxdata_f[0]*8192.0 / 360.0 * 180.0 /M_PI;
+      //   break;
       case motor_target:
         u8_to_float(RxData,rxdata_f,len);
         robstride_angle_target = rxdata_f[0];
-        robomas_target_angle  = rxdata_f[1]*8192.0 / 360.0 * 180.0 /M_PI;
+        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI;
       default:
         // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
         break;
