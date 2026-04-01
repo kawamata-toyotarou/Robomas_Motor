@@ -93,7 +93,7 @@ typedef struct
 #define MAIN_CANID 0xFE
 
 #define robo_ID 0x1
-#define responce_CANID    0x301
+#define responce_CANID    0x211
 
 #define robstride_target 0x211
 #define robomas_target 0x212
