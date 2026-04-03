@@ -126,10 +126,6 @@ UART_HandleTypeDef huart2;
 FDCAN_TxHeaderTypeDef TxHeader;
 FDCAN_TxHeaderTypeDef TxHeader_motor;
 
-// --- PID制御 & 位置復元用変数 (Input 2より) ---
-volatile int32_t saved_total_ecd[4] __attribute__((section(".noinit"))); // リセットまたぎ用
-volatile uint32_t magic_flag __attribute__((section(".noinit")));        // 起動判定フラグ
-
 int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
 uint8_t TxData[8] = {0};
@@ -177,7 +173,7 @@ HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata,
 void move_hiradora(hiradora *Hiradora_handler);
 void move_motor(Motor *motor_typedef);
 void update_total_angle(Motor *m);
-int pid(float v, int mokuhyou, int p, int i, int d, volatile float *gosagoukei, volatile float *lowpastgosa, float gravity, int cutoff, volatile float *maenogosa, int h);
+int pid(float v, float mokuhyou, float p, float i, float d, volatile float *gosagoukei, volatile float *lowpastgosa, float gravity, int cutoff, volatile float *maenogosa, int h);
 mit_command robosutoraido;
 float16_t convert_f32_f16(float32_t);
 float32_t convert_f16_f32(float16_t);
@@ -458,7 +454,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         motors[h].Ki = 0.0;
         motors[h].Kd = 0.0;
         motors[h].speed_target = (int)pid((float)motors[h].rotate_total_angle, motors[h].angle_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference, gravity, cutoff, &motors[h].angle_last_time_difference, h);
-        int max_speed = 1000; // ★ここで最高速度を決めます（数値を小さくするとゆっくりになります）
+        int max_speed = 1000; // ★ここで最高速度を決めます
         if (motors[h].speed_target > max_speed) {
             motors[h].speed_target = max_speed;
         } else if (motors[h].speed_target < -max_speed) {
@@ -487,7 +483,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       if (motor_state == 1 && (now - Elapsed_time) < 1000) {
           karentobaryu = 0;
       }
-      saved_total_ecd[h] = motors[h].rotate_total_angle;
 
       // 送信データの作成
       if (motors[h].can_id >= 0x201 && motors[h].can_id <= 0x204) {
@@ -1203,7 +1198,7 @@ void update_total_angle(Motor *m) {
     m->rotate_last_time_angle = m->angle_data;
 }
 
-int pid(float v, int mokuhyou, int p, int i, int d, volatile float *gosagoukei, volatile float *lowpastgosa, float gravity, int cutoff, volatile float *maenogosa, int h) {
+int pid(float v, float mokuhyou, float p, float i, float d, volatile float *gosagoukei, volatile float *lowpastgosa, float gravity, int cutoff, volatile float *maenogosa, int h) {
     float current = (float)v;
     float gosa = (mokuhyou - current);
     
