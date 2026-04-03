@@ -361,7 +361,6 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     {
       uint8_t cmd_type = (RxHeader.Identifier >> 24) & 0x1F;
       uint8_t motor_id = (RxHeader.Identifier >> 8) & 0xFF; // 下位8bitがモーターID
-      printf("a\r\n");
 
       if (cmd_type == 0x00)
       {
