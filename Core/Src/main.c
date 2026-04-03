@@ -144,7 +144,7 @@ uint8_t motor_state=0;
 int64_t Elapsed_time;
 int len;
 uint8_t init_pin = 0;
-
+int is_outer_loop=0;
 
 volatile float robstride_angle = 0.0;//アームの現在角度
 volatile float robstride_angle_target = 0.0;
@@ -447,30 +447,59 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         karentobaryu = (int)(pid(motors[h].speed, motors[h].speed_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].speed_total_difference, &motors[h].lowpass_difference, gravity, cutoff, &motors[h].speed_last_time_difference, h));
       }
 
-      if (mode[h] == 2) { // カスケード制御
-        motors[h].angle_target = (int)robomas_target_angle;
-        motors[h].Kp = 1;
-        motors[h].Ki = 0.0;
-        motors[h].Kd = 0.0;
-        motors[h].speed_target = (int)pid((float)motors[h].rotate_total_angle, motors[h].angle_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference, gravity, cutoff, &motors[h].angle_last_time_difference, h);
-        int max_speed = 1000; // ★ここで最高速度を決めます
-        if (motors[h].speed_target > max_speed) {
-            motors[h].speed_target = max_speed;
-        } else if (motors[h].speed_target < -max_speed) {
-            motors[h].speed_target = -max_speed;
-        }
-        motors[h].Kp = 15.0;
-        motors[h].Ki = 8.0;
-        motors[h].Kd = 10.0;
-        karentobaryu = (int)(pid(motors[h].speed, motors[h].speed_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].speed_total_difference, &motors[h].lowpass_difference, gravity, cutoff, &motors[h].speed_last_time_difference, h));
-        int error_abs = motors[h].angle_target - motors[h].rotate_total_angle;
+      if (mode[h] == 2) {
+        motors[h].angle_target = (float)robomas_target_angle;
+
+        // 外側ループ（位置→速度）
+        motors[h].Kp = 1.0f;
+        motors[h].Ki = 0.0f;
+        motors[h].Kd = 0.0f;
+        is_outer_loop = 1;  // ← 追加
+        motors[h].speed_target = (int)pid(
+        (float)motors[h].rotate_total_angle, motors[h].angle_target,
+        motors[h].Kp, motors[h].Ki, motors[h].Kd,
+        &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference,
+        gravity, cutoff, &motors[h].angle_last_time_difference, h);
+        if (motors[h].speed_target >  1000) motors[h].speed_target =  1000;
+        if (motors[h].speed_target < -1000) motors[h].speed_target = -1000;
+        // 内側ループ（速度→電流）
+        motors[h].Kp = 5.0f;
+        motors[h].Ki = 1.0f;
+        motors[h].Kd = 15.0f;
+        is_outer_loop = 0;  // ← 内側に切り替え
+        karentobaryu = (int)pid(
+        (float)motors[h].speed, (float)motors[h].speed_target,
+        motors[h].Kp, motors[h].Ki, motors[h].Kd,
+        &motors[h].speed_total_difference, &motors[h].lowpass_difference,
+        gravity, cutoff, &motors[h].speed_last_time_difference, h);
+
+        // SOFTZONEで電流を絞る
+        int error_abs = (int)(motors[h].angle_target - motors[h].rotate_total_angle);
         if (error_abs < 0) error_abs = -error_abs;
-        if (error_abs < 10) {
-          karentobaryu = 0;  // ← ここでモーターの力が抜けてしまっていました
+
+        #define SOFTZONE 60
+        if (error_abs < SOFTZONE) {
+          float scale = (float)error_abs / (float)SOFTZONE;
+          if (scale < 0.2f) scale = 0.2f;
+            karentobaryu = (int)(karentobaryu * scale);
+        }
+
+        // ヒステリシス不感帯（speedは直接書き換えずローカル変数で絶対値を取る）
+        int speed_abs = (int)motors[h].speed;  // ← ローカル変数で絶対値を取る
+        if (speed_abs < 0) speed_abs = -speed_abs;
+
+        static uint32_t allowable_error[4] = {0};
+        if (error_abs < 40 && speed_abs < 40) allowable_error[h] = 1;
+        if (error_abs > 80)                   allowable_error[h] = 0;
+
+        if (allowable_error[h]) {
+          karentobaryu = 0;
           motors[h].angle_total_difference = 0;
+          motors[h].speed_total_difference = 0;
+          motors[h].angle_last_time_difference = 0;
+          motors[h].speed_last_time_difference = 0;
         }
       }
-
       if (mode[h] == 3) { // 電流制御
         motors[h].current_target=1000;
         // motors[h].Kp = 15.0;
@@ -979,7 +1008,6 @@ HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata,
   htxheader->Identifier = CANID;
   if (HAL_OK != HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, htxheader, txdata))
   {
-    printf("addmessage error\r\n");
     return HAL_ERROR;
   }
   return HAL_OK;
@@ -1210,10 +1238,11 @@ int pid(float v, float mokuhyou, float p, float i, float d, volatile float *gosa
     if (*lowpastgosa > 100) *lowpastgosa = 100;
     if (*lowpastgosa < -100) *lowpastgosa = -100;
     
-    if (mode[h] == 2) {
-        syuusokuryoku = p * gosa;
+    if (is_outer_loop) {
+        syuusokuryoku = p * gosa;           // 外側はP制御のみ
     } else {
         syuusokuryoku = p * gosa + i * (*gosagoukei) + d * (*lowpastgosa) + gravity;
+        // 内側はフルPID（Ki・Kdが有効になる）
     }
     
     *maenogosa = gosa;
