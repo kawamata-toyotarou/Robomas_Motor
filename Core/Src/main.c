@@ -155,6 +155,7 @@ volatile float robstride_angle_target = 0.0;
 
 volatile float robomas_target_angle = 0.0;
 
+int timecount = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -329,7 +330,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       case motor_target:
         u8_to_float(RxData,rxdata_f,len);
         robstride_angle_target = rxdata_f[0];
-        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI;
+        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI *36 ;
       default:
         // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
         break;
@@ -641,6 +642,8 @@ int main(void)
     motors[i].angle_lowpass_difference = 0;
   }
 
+  //robstride_set_mechanical_zero(robo_ID);
+  HAL_Delay(10);
   robstride_disable_or_clear_fault(robo_ID, 1);
   HAL_Delay(50);
 
