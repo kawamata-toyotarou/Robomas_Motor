@@ -151,7 +151,6 @@ volatile float robstride_angle_target = 0.0;
 
 volatile float robomas_target_angle = 0.0;
 
-int timecount = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -326,7 +325,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       case motor_target:
         u8_to_float(RxData,rxdata_f,len);
         robstride_angle_target = rxdata_f[0];
-        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI *36 ;
+        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI;
       default:
         // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
         break;
@@ -398,7 +397,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       if (motor_state == 0) {
           // 起動直後（リミットスイッチが押されるまで）
           mode[h] = 1; // カスケード制御
-          motors[h].speed_target = -1500;
+          motors[h].speed_target = -3000;
       } else if (motor_state == 1) {
           // リミットスイッチが押された後
           uint32_t diff_time = now - Elapsed_time;
@@ -437,10 +436,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
       if (mode[h] == 1) { // 速度制御
         if(motor_state==0){
-            motors[h].speed_target=-1500;
+            motors[h].speed_target=-3000;
         }
         else{
-            motors[h].speed_target=1500;
+            motors[h].speed_target=3000;
         }
         motors[h].Kp = 15.0;
         motors[h].Ki = 8.0;
@@ -455,29 +454,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         motors[h].Kp = 1.0f;
         motors[h].Ki = 0.0f;
         motors[h].Kd = 0.0f;
-        is_outer_loop = 1;  // ← 追加
+        is_outer_loop = 1;  
         motors[h].speed_target = (int)pid(
         (float)motors[h].rotate_total_angle, motors[h].angle_target,
         motors[h].Kp, motors[h].Ki, motors[h].Kd,
         &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference,
         gravity, cutoff, &motors[h].angle_last_time_difference, h);
-        if (motors[h].speed_target >  1000) motors[h].speed_target =  1000;
-        if (motors[h].speed_target < -1000) motors[h].speed_target = -1000;
+        if (motors[h].speed_target >  2000) motors[h].speed_target =  2000;
+        if (motors[h].speed_target < -2000) motors[h].speed_target = -2000;
         // 内側ループ（速度→電流）
         motors[h].Kp = 5.0f;
         motors[h].Ki = 1.0f;
-        motors[h].Kd = 15.0f;
+        motors[h].Kd = 10.0f;
         is_outer_loop = 0;  // ← 内側に切り替え
         karentobaryu = (int)pid(
         (float)motors[h].speed, (float)motors[h].speed_target,
         motors[h].Kp, motors[h].Ki, motors[h].Kd,
         &motors[h].speed_total_difference, &motors[h].lowpass_difference,
         gravity, cutoff, &motors[h].speed_last_time_difference, h);
-
         // SOFTZONEで電流を絞る
         int error_abs = (int)(motors[h].angle_target - motors[h].rotate_total_angle);
         if (error_abs < 0) error_abs = -error_abs;
-
         #define SOFTZONE 60
         if (error_abs < SOFTZONE) {
           float scale = (float)error_abs / (float)SOFTZONE;
@@ -665,8 +662,6 @@ int main(void)
     motors[i].angle_lowpass_difference = 0;
   }
 
-  //robstride_set_mechanical_zero(robo_ID);
-  HAL_Delay(10);
   robstride_disable_or_clear_fault(robo_ID, 1);
   HAL_Delay(50);
 
