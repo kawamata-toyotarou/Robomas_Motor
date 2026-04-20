@@ -325,7 +325,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
       case motor_target:
         u8_to_float(RxData,rxdata_f,len);
         robstride_angle_target = rxdata_f[0];
-        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI;
+        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI*36;
       default:
         // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
         break;
@@ -397,7 +397,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       if (motor_state == 0) {
           // 起動直後（リミットスイッチが押されるまで）
           mode[h] = 1; // カスケード制御
-          motors[h].speed_target = -3000;
+          motors[h].speed_target = -2000;
       } else if (motor_state == 1) {
           // リミットスイッチが押された後
           uint32_t diff_time = now - Elapsed_time;
@@ -436,10 +436,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
       if (mode[h] == 1) { // 速度制御
         if(motor_state==0){
-            motors[h].speed_target=-3000;
+            motors[h].speed_target=-2000;
         }
         else{
-            motors[h].speed_target=3000;
+            motors[h].speed_target=2000;
         }
         motors[h].Kp = 15.0;
         motors[h].Ki = 8.0;
@@ -460,8 +460,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         motors[h].Kp, motors[h].Ki, motors[h].Kd,
         &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference,
         gravity, cutoff, &motors[h].angle_last_time_difference, h);
-        if (motors[h].speed_target >  2000) motors[h].speed_target =  2000;
-        if (motors[h].speed_target < -2000) motors[h].speed_target = -2000;
+        if (motors[h].speed_target >  5200) motors[h].speed_target =  5200;
+        if (motors[h].speed_target < -5200) motors[h].speed_target = -5200;
         // 内側ループ（速度→電流）
         motors[h].Kp = 5.0f;
         motors[h].Ki = 1.0f;
