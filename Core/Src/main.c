@@ -231,17 +231,17 @@ float unmap_robstride(uint16_t x, int mode)
     return after_min + ((float)x - before_min) * (after_max - after_min) / (before_max - before_min);
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  if((kokoichi_Pin==GPIO_Pin)){
-    if(motor_state==0){
-      motor_state=1;
-      Elapsed_time=HAL_GetTick();
-    }else {
-      init_pin = 1;
-    }
+// void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+//   if((kokoichi_Pin==GPIO_Pin)){
+//     if(motor_state==0){
+//       motor_state=1;
+//       Elapsed_time=HAL_GetTick();
+//     }else {
+//       init_pin = 1;
+//     }
     
-  }
-}
+//   }
+// }
 
 void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs){
 	if (RESET != (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE)) {
@@ -312,25 +312,24 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 
     float rxdata_f[5];
 
-    switch (RxHeader.Identifier)
-    {
-      // case robstride_target: // change this value for testing. Reccommend to use an ID with privateDefined macro
-      //   u8_to_float(RxData,rxdata_f,len);
-      //   robstride_angle_target = rxdata_f[0];
-      //   break;
-      // case robomas_target:
-      //   u8_to_float(RxData,rxdata_f,len);
-      //   robomas_target_angle  = rxdata_f[0]*8192.0 / 360.0 * 180.0 /M_PI;
-      //   break;
-      case motor_target:
-        u8_to_float(RxData,rxdata_f,len);
-        robstride_angle_target = rxdata_f[0];
-        robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI*36;
-      default:
-        // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
-        break;
-    }
-	}
+  switch (RxHeader.Identifier)
+  {
+    case 0x100:  // ★追加: 角度目標(度数)を受信
+      u8_to_float(RxData, rxdata_f, len);
+      // 度数 → エンコーダカウント変換(ギア比36倍)
+      robomas_target_angle = rxdata_f[0] * 8192.0f / 360.0f * 36.0f;
+    break;
+    case motor_target:
+      u8_to_float(RxData,rxdata_f,len);
+      robstride_angle_target = rxdata_f[0];
+      robomas_target_angle  = rxdata_f[3]*8192.0 / 360.0 * 180.0 /M_PI*36;
+    break;
+  default:
+    break;
+}
+
+}
+
 }
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs) {
@@ -394,58 +393,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     int send1FF_flag = 0;
    
     for (int h = 0; h < 4; h++) {
-      if (motor_state == 0) {
-          // 起動直後（リミットスイッチが押されるまで）
-          mode[h] = 1; // カスケード制御
-          motors[h].speed_target = -2000;
-      } else if (motor_state == 1) {
-          // リミットスイッチが押された後
-          uint32_t diff_time = now - Elapsed_time;
+      mode[h] = 2; // ★常にカスケード制御に固定
+      motors[h].angle_target = (float)robomas_target_angle; // 0x100受信で更新される目標角度(初期値0)
 
-          if (diff_time < 1000) {
-              // ★修正ポイント：スイッチに当たってから1秒間（待機中）
-                mode[h] = -1; // PID計算を行わない「お休みモード」にする
-                
-                // 止まっているこの場所を「新しい0度」として設定し続ける
-                motors[h].rotate_total_angle = 0;
-                
-                // 探索中に溜まった「PIDのストレス（積分値）」を空っぽにする
-                motors[h].speed_total_difference = 0;
-                motors[h].angle_total_difference = 0;
-                motors[h].angle_last_time_difference = 0;
-                motors[h].speed_last_time_difference = 0;
-          } else {
-         
-              mode[h] = 2; // カスケード制御
-              motors[h].angle_target = 0.0*8192/360.0*36.0; // ★戻したい角度に合わせて変更してください
-          }
-          if( init_pin ==1){
-            motors[h].rotate_total_angle = 0;
-            init_pin = 0;
-          }
-      }
       motors[h].rotate_now_angle = motors[h].angle_data;
       update_total_angle(&motors[h]);
-      if (mode[h] == 0) { // 位置制御
-        motors[h].Kp = 1;
-        motors[h].Ki = 0.03;
-        motors[h].Kd = 80.0;
-        karentobaryu = (int)pid((float)motors[h].rotate_total_angle, motors[h].angle_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].angle_total_difference, &motors[h].angle_lowpass_difference, gravity, cutoff, &motors[h].angle_last_time_difference, h);
-        motors[h].last_time_angle = motors[h].angle;
-      }
 
-      if (mode[h] == 1) { // 速度制御
-        if(motor_state==0){
-            motors[h].speed_target=-2000;
-        }
-        else{
-            motors[h].speed_target=2000;
-        }
-        motors[h].Kp = 15.0;
-        motors[h].Ki = 8.0;
-        motors[h].Kd = 10.0;
-        karentobaryu = (int)(pid(motors[h].speed, motors[h].speed_target, motors[h].Kp, motors[h].Ki, motors[h].Kd, &motors[h].speed_total_difference, &motors[h].lowpass_difference, gravity, cutoff, &motors[h].speed_last_time_difference, h));
-      }
+      // 以降、mode[h]==2 のブロックはそのまま残す
 
       if (mode[h] == 2) {
         motors[h].angle_target = (float)robomas_target_angle;
@@ -505,9 +459,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         // motors[h].Kd = 0.0;
         //karentobaryu=(int)(pid(motors[h].c_current,motors[h].cmokuhyou,motors[h].Kp,motors[h].Ki,motors[h].Kd,&motors[h].gosagoukei,&motors[h].lowpastgosa,gravity,cutoff,&motors[h].maenogosa)); 
         karentobaryu = motors[h].current_target;
-      }
-      if (motor_state == 1 && (now - Elapsed_time) < 1000) {
-          karentobaryu = 0;
       }
 
       // 送信データの作成
@@ -647,19 +598,13 @@ int main(void)
 
   printf("Motor data received. Setting current position as ZERO.\r\n");
 
-
-  // --- 2. 現在の位置を「0」としてリセットする (ここが重要) ---
-  float one_degree_val = 8192.0f / 360.0f; 
-  
-  float target_move_angle = 30.0f; // ★ここで「起動後に動かしたい角度」を指定
-
   for (int i = 0; i < 4; i++) {
-    motors[i].rotate_last_time_angle = motors[i].angle_data; 
-    motors[i].rotate_total_angle = 0; 
-    motors[i].angle_target = (int)(target_move_angle * one_degree_val); 
-    motors[i].angle_total_difference = 0;
-    motors[i].angle_last_time_difference = 0;
-    motors[i].angle_lowpass_difference = 0;
+  motors[i].rotate_last_time_angle = motors[i].angle_data; 
+  motors[i].rotate_total_angle = 0; 
+  motors[i].angle_target = 0.0f;   // ★デフォルトは0度(0x100を受信するまで停止)
+  motors[i].angle_total_difference = 0;
+  motors[i].angle_last_time_difference = 0;
+  motors[i].angle_lowpass_difference = 0;
   }
 
   robstride_disable_or_clear_fault(robo_ID, 1);
@@ -675,9 +620,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    robstride_move(robo_ID, robstride_angle_target);
-    printf("angle:%f,robmas:%d\r\n",robstride_angle,(int)robomas_target_angle);
-    HAL_Delay(10);
+    // robstride_move(robo_ID, robstride_angle_target);
+    // printf("angle:%f,robmas:%d\r\n",robstride_angle,(int)robomas_target_angle);
+    printf("angle:%f\r\n",(int)robomas_target_angle);
+    HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
