@@ -150,7 +150,8 @@ volatile float robstride_angle = 0.0;//アームの現在角度
 volatile float robstride_angle_target = 0.0;
 
 volatile float robomas_target_angle = 0.0;
-
+volatile float target_angle_202 = 0.0f;       
+volatile float target_angle_201 = 0.0f;       
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -317,7 +318,8 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
     case 0x230:  // 角度目標(度数)を受信
       int32_t rxdata_i[2];
       u8_to_int(RxData, rxdata_i, len);   
-      robomas_target_angle = (float)rxdata_i[0] * 8192.0f / 360.0f * 36.0f;
+      target_angle_202 = (float)rxdata_i[0] * 8192.0f / 360.0f * 36.0f;  // 前半
+      target_angle_201 = (float)rxdata_i[1] * 8192.0f / 360.0f * 36.0f;  // 後半
     break;
     case motor_target:
       u8_to_float(RxData,rxdata_f,len);
@@ -393,8 +395,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     int send1FF_flag = 0;
    
     for (int h = 0; h < 4; h++) {
-      mode[h] = 2; // ★常にカスケード制御に固定
-      motors[h].angle_target = (float)robomas_target_angle; // 0x100受信で更新される目標角度(初期値0)
+      mode[h] = 2; // カスケード制御
+      //motors[h].angle_target = (float)robomas_target_angle; // 0x100受信で更新される目標角度(初期値0)
+
+      if (motors[h].can_id == 0x201) {
+        motors[h].angle_target = target_angle_201;
+      } else if (motors[h].can_id == 0x202) {
+        motors[h].angle_target = target_angle_202;
+      }
 
       motors[h].rotate_now_angle = motors[h].angle_data;
       update_total_angle(&motors[h]);
@@ -402,7 +410,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       // 以降、mode[h]==2 のブロックはそのまま残す
 
       if (mode[h] == 2) {
-        motors[h].angle_target = (float)robomas_target_angle;
+        //motors[h].angle_target = (float)robomas_target_angle;
 
         // 外側ループ（位置→速度）
         motors[h].Kp = 1.0f;
