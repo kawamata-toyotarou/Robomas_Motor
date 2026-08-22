@@ -314,10 +314,10 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 
   switch (RxHeader.Identifier)
   {
-    case 0x100:  // ★追加: 角度目標(度数)を受信
-      u8_to_float(RxData, rxdata_f, len);
-      // 度数 → エンコーダカウント変換(ギア比36倍)
-      robomas_target_angle = rxdata_f[0] * 8192.0f / 360.0f * 36.0f;
+    case 0x230:  // 角度目標(度数)を受信
+      int32_t rxdata_i[2];
+      u8_to_int(RxData, rxdata_i, len);   
+      robomas_target_angle = (float)rxdata_i[0] * 8192.0f / 360.0f * 36.0f;
     break;
     case motor_target:
       u8_to_float(RxData,rxdata_f,len);
@@ -941,7 +941,7 @@ HAL_StatusTypeDef interboard_comms_CAN_RxTxSettings_init(FDCAN_TxHeaderTypeDef *
     printf("fdcan_activatenotification is error\r\n");
     return HAL_ERROR;
   }
-
+ 
   return HAL_OK;
 }
 
