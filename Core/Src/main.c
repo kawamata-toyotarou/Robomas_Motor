@@ -126,6 +126,10 @@ UART_HandleTypeDef huart2;
 FDCAN_TxHeaderTypeDef TxHeader;
 FDCAN_TxHeaderTypeDef TxHeader_motor;
 
+volatile uint8_t homing_done_201 = 0;   
+volatile uint8_t homing_done_202 = 0;   
+#define HOMING_SPEED 300
+
 int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
 uint8_t TxData[8] = {0};
@@ -243,6 +247,42 @@ float unmap_robstride(uint16_t x, int mode)
     
 //   }
 // }
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == GPIO_PIN_0) // PC0: motors[1] (0x202) 用リミットスイッチ
+  {
+    if (!homing_done_202)
+    {
+      motors[1].rotate_last_time_angle   = motors[1].angle_data;
+      motors[1].rotate_total_angle       = 0;
+      motors[1].angle_target             = 0.0f;
+      motors[1].angle_total_difference   = 0;
+      motors[1].angle_last_time_difference = 0;
+      motors[1].angle_lowpass_difference = 0;
+      motors[1].speed_total_difference   = 0;
+      motors[1].speed_last_time_difference = 0;
+      motors[1].lowpass_difference       = 0;
+      homing_done_202 = 1;
+    }
+  }
+  else if (GPIO_Pin == GPIO_PIN_1) // PC1: motors[0] (0x201) 用リミットスイッチ
+  {
+    if (!homing_done_201)
+    {
+      motors[0].rotate_last_time_angle   = motors[0].angle_data;
+      motors[0].rotate_total_angle       = 0;
+      motors[0].angle_target             = 0.0f;
+      motors[0].angle_total_difference   = 0;
+      motors[0].angle_last_time_difference = 0;
+      motors[0].angle_lowpass_difference = 0;
+      motors[0].speed_total_difference   = 0;
+      motors[0].speed_last_time_difference = 0;
+      motors[0].lowpass_difference       = 0;
+      homing_done_201 = 1;
+    }
+  }
+}
 
 void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs){
 	if (RESET != (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE)) {
@@ -395,28 +435,54 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     int send1FF_flag = 0;
    
     for (int h = 0; h < 4; h++) {
-      mode[h] = 2; // カスケード制御
-      //motors[h].angle_target = (float)robomas_target_angle; // 0x100受信で更新される目標角度(初期値0)
+
+      uint8_t need_homing  = 0;
+      uint8_t homing_ready = 1;   // ホーミング不要なモーターは常に「完了扱い」
 
       if (motors[h].can_id == 0x201) {
-        motors[h].angle_target = target_angle_201;
+        need_homing  = 1;
+        homing_ready = homing_done_201;
       } else if (motors[h].can_id == 0x202) {
-        motors[h].angle_target = target_angle_202;
+        need_homing  = 1;
+        homing_ready = homing_done_202;
+      }
+
+      if (need_homing && !homing_ready) {
+        mode[h] = 1; // 原点探索中: 速度制御
+      } else {
+        mode[h] = 2; // カスケード制御(通常運転)
+        if (motors[h].can_id == 0x201) {
+          motors[h].angle_target = target_angle_201;
+        } else if (motors[h].can_id == 0x202) {
+          motors[h].angle_target = target_angle_202;
+        }
       }
 
       motors[h].rotate_now_angle = motors[h].angle_data;
       update_total_angle(&motors[h]);
 
-      // 以降、mode[h]==2 のブロックはそのまま残す
+      if (mode[h] == 1) {
+      //一定速度でリミットスイッチに向かって回転
+        motors[h].speed_target = HOMING_SPEED;
+
+        motors[h].Kp = 5.0f;
+        motors[h].Ki = 1.0f;
+        motors[h].Kd = 10.0f;
+        is_outer_loop = 0;
+
+        karentobaryu = (int)pid(
+          (float)motors[h].speed, (float)motors[h].speed_target,
+          motors[h].Kp, motors[h].Ki, motors[h].Kd,
+          &motors[h].speed_total_difference, &motors[h].lowpass_difference,
+        gravity, cutoff, &motors[h].speed_last_time_difference, h);
+      }
 
       if (mode[h] == 2) {
-        //motors[h].angle_target = (float)robomas_target_angle;
-
-        // 外側ループ（位置→速度）
+        // (ここから下は既存のカスケード制御ロジックをそのまま)
         motors[h].Kp = 1.0f;
         motors[h].Ki = 0.0f;
         motors[h].Kd = 0.0f;
-        is_outer_loop = 1;  
+        is_outer_loop = 1;
         motors[h].speed_target = (int)pid(
         (float)motors[h].rotate_total_angle, motors[h].angle_target,
         motors[h].Kp, motors[h].Ki, motors[h].Kd,
@@ -424,28 +490,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         gravity, cutoff, &motors[h].angle_last_time_difference, h);
         if (motors[h].speed_target >  5200) motors[h].speed_target =  5200;
         if (motors[h].speed_target < -5200) motors[h].speed_target = -5200;
-        // 内側ループ（速度→電流）
+
         motors[h].Kp = 5.0f;
         motors[h].Ki = 1.0f;
         motors[h].Kd = 10.0f;
-        is_outer_loop = 0;  // ← 内側に切り替え
+        is_outer_loop = 0;
         karentobaryu = (int)pid(
         (float)motors[h].speed, (float)motors[h].speed_target,
         motors[h].Kp, motors[h].Ki, motors[h].Kd,
         &motors[h].speed_total_difference, &motors[h].lowpass_difference,
         gravity, cutoff, &motors[h].speed_last_time_difference, h);
-        // SOFTZONEで電流を絞る
+
         int error_abs = (int)(motors[h].angle_target - motors[h].rotate_total_angle);
         if (error_abs < 0) error_abs = -error_abs;
-        #define SOFTZONE 60
+          #define SOFTZONE 60
         if (error_abs < SOFTZONE) {
           float scale = (float)error_abs / (float)SOFTZONE;
-          if (scale < 0.2f) scale = 0.2f;
-            karentobaryu = (int)(karentobaryu * scale);
+        if (scale < 0.2f) scale = 0.2f;
+          karentobaryu = (int)(karentobaryu * scale);
         }
 
-        // ヒステリシス不感帯（speedは直接書き換えずローカル変数で絶対値を取る）
-        int speed_abs = (int)motors[h].speed;  // ← ローカル変数で絶対値を取る
+        int speed_abs = (int)motors[h].speed;
         if (speed_abs < 0) speed_abs = -speed_abs;
 
         static uint32_t allowable_error[4] = {0};
@@ -884,6 +949,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PC1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pin : Board_LED_Pin */
   GPIO_InitStruct.Pin = Board_LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -894,6 +965,9 @@ static void MX_GPIO_Init(void)
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
