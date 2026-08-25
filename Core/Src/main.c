@@ -128,7 +128,7 @@ FDCAN_TxHeaderTypeDef TxHeader_motor;
 
 volatile uint8_t homing_done_201 = 0;   
 volatile uint8_t homing_done_202 = 0;   
-#define HOMING_SPEED 300
+#define HOMING_SPEED 500
 
 int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
@@ -453,6 +453,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         mode[h] = 2; // カスケード制御(通常運転)
         if (motors[h].can_id == 0x201) {
           motors[h].angle_target = target_angle_201;
+          if (motors[h].angle_target > 0.0f) {  
+            motors[h].angle_target = 0.0f;
+          }
         } else if (motors[h].can_id == 0x202) {
           motors[h].angle_target = target_angle_202;
         }
@@ -674,12 +677,39 @@ int main(void)
   for (int i = 0; i < 4; i++) {
   motors[i].rotate_last_time_angle = motors[i].angle_data; 
   motors[i].rotate_total_angle = 0; 
-  motors[i].angle_target = 0.0f;   // ★デフォルトは0度(0x100を受信するまで停止)
+  motors[i].angle_target = 0.0f;   // 0度
   motors[i].angle_total_difference = 0;
   motors[i].angle_last_time_difference = 0;
   motors[i].angle_lowpass_difference = 0;
   }
 
+  /*初期状態でリミットスイッチを押しているか判定*/
+  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET)   // PC1: motors[0](0x201)用。実際の押下時レベルに合わせて条件を要確認
+  {
+    motors[0].rotate_last_time_angle   = motors[0].angle_data;
+    motors[0].rotate_total_angle       = 0;
+    motors[0].angle_target             = 0.0f;
+    motors[0].angle_total_difference   = 0;
+    motors[0].angle_last_time_difference = 0;
+    motors[0].angle_lowpass_difference = 0;
+    motors[0].speed_total_difference   = 0;
+    motors[0].speed_last_time_difference = 0;
+    motors[0].lowpass_difference       = 0;
+    homing_done_201 = 1;
+  }
+  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET) // PC0: motors[1](0x202)用。実際の押下時レベルに合わせて条件を要確認
+  {
+    motors[1].rotate_last_time_angle   = motors[0].angle_data;
+    motors[1].rotate_total_angle       = 0;
+    motors[1].angle_target             = 0.0f;
+    motors[1].angle_total_difference   = 0;
+    motors[1].angle_last_time_difference = 0;
+    motors[1].angle_lowpass_difference = 0;
+    motors[1].speed_total_difference   = 0;
+    motors[1].speed_last_time_difference = 0;
+    motors[1].lowpass_difference       = 0;
+    homing_done_202 = 1;
+  }
   robstride_disable_or_clear_fault(robo_ID, 1);
   HAL_Delay(50);
 
