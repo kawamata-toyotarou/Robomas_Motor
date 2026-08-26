@@ -433,6 +433,38 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim == &htim6) {
     int send200_flag = 0;
     int send1FF_flag = 0;
+    static int init_flag_201 = 0;
+    static int init_flag_202 = 0;
+    
+    /*初期状態でリミットスイッチを押しているか判定*/
+    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET  && init_flag_201 == 0 && motors[0].init_flag == 1)   // PC1: motors[0](0x201)用。実際の押下時レベルに合わせて条件を要確認
+    {
+      motors[0].rotate_last_time_angle   = motors[0].angle_data;
+      motors[0].rotate_total_angle       = 0;
+      motors[0].angle_target             = 0.0f;
+      motors[0].angle_total_difference   = 0;
+      motors[0].angle_last_time_difference = 0;
+      motors[0].angle_lowpass_difference = 0;
+      motors[0].speed_total_difference   = 0;
+      motors[0].speed_last_time_difference = 0;
+      motors[0].lowpass_difference       = 0;
+      homing_done_201 = 1;
+      init_flag_201 = 1;
+    }
+  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET && init_flag_202 == 0 && motors[1].init_flag == 1) // PC0: motors[1](0x202)用。実際の押下時レベルに合わせて条件を要確認
+  {
+    motors[1].rotate_last_time_angle   = motors[1].angle_data;
+    motors[1].rotate_total_angle       = 0;
+    motors[1].angle_target             = 0.0f;
+    motors[1].angle_total_difference   = 0;
+    motors[1].angle_last_time_difference = 0;
+    motors[1].angle_lowpass_difference = 0;
+    motors[1].speed_total_difference   = 0;
+    motors[1].speed_last_time_difference = 0;
+    motors[1].lowpass_difference       = 0;
+    homing_done_202 = 1;
+    init_flag_202 = 1;
+  }
    
     for (int h = 0; h < 4; h++) {
 
@@ -465,9 +497,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       update_total_angle(&motors[h]);
 
       if (mode[h] == 1) {
-      //一定速度でリミットスイッチに向かって回転
+        //一定速度でリミットスイッチに向かって回転
         motors[h].speed_target = HOMING_SPEED;
-
+        
         motors[h].Kp = 5.0f;
         motors[h].Ki = 1.0f;
         motors[h].Kd = 10.0f;
@@ -683,33 +715,6 @@ int main(void)
   motors[i].angle_lowpass_difference = 0;
   }
 
-  /*初期状態でリミットスイッチを押しているか判定*/
-  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET)   // PC1: motors[0](0x201)用。実際の押下時レベルに合わせて条件を要確認
-  {
-    motors[0].rotate_last_time_angle   = motors[0].angle_data;
-    motors[0].rotate_total_angle       = 0;
-    motors[0].angle_target             = 0.0f;
-    motors[0].angle_total_difference   = 0;
-    motors[0].angle_last_time_difference = 0;
-    motors[0].angle_lowpass_difference = 0;
-    motors[0].speed_total_difference   = 0;
-    motors[0].speed_last_time_difference = 0;
-    motors[0].lowpass_difference       = 0;
-    homing_done_201 = 1;
-  }
-  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET) // PC0: motors[1](0x202)用。実際の押下時レベルに合わせて条件を要確認
-  {
-    motors[1].rotate_last_time_angle   = motors[0].angle_data;
-    motors[1].rotate_total_angle       = 0;
-    motors[1].angle_target             = 0.0f;
-    motors[1].angle_total_difference   = 0;
-    motors[1].angle_last_time_difference = 0;
-    motors[1].angle_lowpass_difference = 0;
-    motors[1].speed_total_difference   = 0;
-    motors[1].speed_last_time_difference = 0;
-    motors[1].lowpass_difference       = 0;
-    homing_done_202 = 1;
-  }
   robstride_disable_or_clear_fault(robo_ID, 1);
   HAL_Delay(50);
 
