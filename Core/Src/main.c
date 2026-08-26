@@ -514,7 +514,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
       if (mode[h] == 2) {
         // (ここから下は既存のカスケード制御ロジックをそのまま)
-        motors[h].Kp = 1.0f;
+        motors[h].Kp = 1.2f;
         motors[h].Ki = 0.0f;
         motors[h].Kd = 0.0f;
         is_outer_loop = 1;
