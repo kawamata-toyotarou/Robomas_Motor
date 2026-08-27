@@ -252,35 +252,41 @@ float unmap_robstride(uint16_t x, int mode)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin == GPIO_PIN_0) // PC0: motors[1] (0x202) 用リミットスイッチ
+  if (GPIO_Pin == GPIO_PIN_0) //0x202用リミットスイッチ
   {
+    // 角度を0とみなす処理は毎回
+    motors[1].rotate_last_time_angle   = motors[1].angle_data;
+    motors[1].rotate_total_angle       = 0;
+    motors[1].angle_target             = 0.0f;
+    motors[1].angle_total_difference   = 0;
+    motors[1].angle_last_time_difference = 0;
+    motors[1].angle_lowpass_difference = 0;
+    motors[1].speed_total_difference   = 0;
+    motors[1].speed_last_time_difference = 0;
+    motors[1].lowpass_difference       = 0;
+
+    // ホーミング完了フラグは最初の1回だけ
     if (!homing_done_202)
     {
-      motors[1].rotate_last_time_angle   = motors[1].angle_data;
-      motors[1].rotate_total_angle       = 0;
-      motors[1].angle_target             = 0.0f;
-      motors[1].angle_total_difference   = 0;
-      motors[1].angle_last_time_difference = 0;
-      motors[1].angle_lowpass_difference = 0;
-      motors[1].speed_total_difference   = 0;
-      motors[1].speed_last_time_difference = 0;
-      motors[1].lowpass_difference       = 0;
       homing_done_202 = 1;
     }
   }
-  else if (GPIO_Pin == GPIO_PIN_1) // PC1: motors[0] (0x201) 用リミットスイッチ
+  else if (GPIO_Pin == GPIO_PIN_1) //0x201用リミットスイッチ
   {
+    // 角度を0とみなす処理は毎回
+    motors[0].rotate_last_time_angle   = motors[0].angle_data;
+    motors[0].rotate_total_angle       = 0;
+    motors[0].angle_target             = 0.0f;
+    motors[0].angle_total_difference   = 0;
+    motors[0].angle_last_time_difference = 0;
+    motors[0].angle_lowpass_difference = 0;
+    motors[0].speed_total_difference   = 0;
+    motors[0].speed_last_time_difference = 0;
+    motors[0].lowpass_difference       = 0;
+
+    // ホーミング完了フラグは最初の1回だけ
     if (!homing_done_201)
     {
-      motors[0].rotate_last_time_angle   = motors[0].angle_data;
-      motors[0].rotate_total_angle       = 0;
-      motors[0].angle_target             = 0.0f;
-      motors[0].angle_total_difference   = 0;
-      motors[0].angle_last_time_difference = 0;
-      motors[0].angle_lowpass_difference = 0;
-      motors[0].speed_total_difference   = 0;
-      motors[0].speed_last_time_difference = 0;
-      motors[0].lowpass_difference       = 0;
       homing_done_201 = 1;
     }
   }
