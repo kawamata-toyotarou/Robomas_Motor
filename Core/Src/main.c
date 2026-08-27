@@ -88,17 +88,19 @@ typedef struct
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define CAN_ID_MACRO_kaetekudasai 0x7FE // example CAN ID macro for testing
-
+#define CAN_ID_MACRO_kaetekudasai 0x7FE   // example CAN ID macro for testing
 #define MAIN_CANID 0xFE
-
 #define robo_ID 0x1
 #define responce_CANID    0x211
-
 #define robstride_target 0x211
 #define robomas_target 0x212
-#define  motor_target 0x311
-// 何の値を変換するかを指定する
+#define motor_target 0x311
+#define MOTOR_POWER_LOST_CANID 0x520     //モーターの電源がきれたことをcanで送信する時のid
+
+
+#define motor_timeout_ms 500             //モーターの通信がきれてから電源がきれたと判断する時間
+#define HOMING_SPEED 500
+
 enum
 {
   TARGET_ANGLE,
@@ -128,9 +130,9 @@ FDCAN_TxHeaderTypeDef TxHeader_motor;
 
 volatile uint8_t homing_done_201 = 0;   
 volatile uint8_t homing_done_202 = 0;   
-#define HOMING_SPEED 500
 
-int mode[4] ={1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
+int mode[4] = {1,1,1,1};  // 0:位置制御, 1:速度制御, 2:カスケード制御, 3:電流制御
+int motor_power_lost_flag[4] = {0, 0, 0, 0};
 Motor motors[4]; // PID制御対象のモーター(ID 0x201~0x204想定)
 uint8_t TxData[8] = {0};
 uint8_t TxData2[8] = {0};
@@ -425,10 +427,25 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
   uint32_t now = HAL_GetTick();
-    // モーター0が一度でも通信できていて、かつ最後の通信から500ms以上経過したら電源が切れたと判断
-    if (motors[0].init_flag == 1 && (now - motors[0].can_now_time) > 500) {
-        NVIC_SystemReset(); // マイコン自身を強制的に再起動（初期化）する
+
+  for (int h = 0; h < 2; h++) {  
+    if (motors[h].init_flag == 1) {
+      if (1199 > (now - motors[h].can_now_time) && (now - motors[h].can_now_time) > motor_timeout_ms) {
+        // 電源断が続いている間、0.5から1.2秒の間は毎回送信
+        int32_t power_status = 1;     
+        uint8_t pwr_data[8] = {0};
+        int_to_u8(&power_status, pwr_data, 1);
+
+        FDCAN_TxHeaderTypeDef TxHeader_pwr = TxHeader;  
+        CAN_SEND(MOTOR_POWER_LOST_CANID, FDCAN_DLC_BYTES_8, pwr_data, &hfdcan1, &TxHeader_pwr);
+      }
     }
+  }
+
+  // モーター0が一度でも通信できていて、かつ最後の通信から1200ms以上経過したら電源が切れたと判断
+  if (motors[0].init_flag == 1 && (now - motors[0].can_now_time) > 1200) {
+    NVIC_SystemReset(); // マイコン自身を強制的に再起動（初期化）する
+  }
 
   if (htim == &htim6) {
     int send200_flag = 0;
