@@ -273,20 +273,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
   else if (GPIO_Pin == GPIO_PIN_1) //0x201用リミットスイッチ
   {
-    // 角度を0とみなす処理は毎回
-    motors[0].rotate_last_time_angle   = motors[0].angle_data;
-    motors[0].rotate_total_angle       = 0;
-    motors[0].angle_target             = 0.0f;
-    motors[0].angle_total_difference   = 0;
-    motors[0].angle_last_time_difference = 0;
-    motors[0].angle_lowpass_difference = 0;
-    motors[0].speed_total_difference   = 0;
-    motors[0].speed_last_time_difference = 0;
-    motors[0].lowpass_difference       = 0;
 
     // ホーミング完了フラグは最初の1回だけ
     if (!homing_done_201)
     {
+      // 角度を0とみなす処理は毎回
+      motors[0].rotate_last_time_angle   = motors[0].angle_data;
+      motors[0].rotate_total_angle       = 0;
+      motors[0].angle_target             = 0.0f;
+      motors[0].angle_total_difference   = 0;
+      motors[0].angle_last_time_difference = 0;
+      motors[0].angle_lowpass_difference = 0;
+      motors[0].speed_total_difference   = 0;
+      motors[0].speed_last_time_difference = 0;
+      motors[0].lowpass_difference       = 0;
       homing_done_201 = 1;
     }
   }
